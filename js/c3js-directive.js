@@ -15,6 +15,8 @@ angular.module('gridshore.c3js.chart', [])
 	$scope.chartSize = null;
 	$scope.colors = null;
 	$scope.jsonKeys = null;
+  $scope.onclick = null;
+  $scope.oldKeys = [];
 
 	this.showGraph = function() {
 		var config = {};			
@@ -22,15 +24,26 @@ angular.module('gridshore.c3js.chart', [])
 		config.data = {}
 
 		if ($scope.chartData && $scope.chartColumns) {
-			$scope.$watchCollection('chartData', function() {
-				loadChartData();
-			});
 			$scope.jsonKeys = {};
 			$scope.jsonKeys.value=[];
-			angular.forEach($scope.chartColumns, function(column) {
-				$scope.jsonKeys.value.push(column.id);
-				addColumnProperties(column.id ,column.type, column.name, column.color);
-			});
+
+			$scope.$watch('chartData', function() {
+        if ($scope.chartData !== undefined && $scope.chartData.length > 0){
+          loadChartData({unload: false});
+        }
+			}, true);
+
+      $scope.$watch('chartColumns', function() { 
+        if ($scope.chartColumns !== undefined && $scope.chartColumns.length > 0){
+          $scope.jsonKeys.value = []
+          _.each($scope.chartColumns, function(column) { 
+            $scope.jsonKeys.value.push(column.id); 
+            addColumnProperties(column.id, column.type, column.name, column.color); 
+          }); 
+          loadChartData({unload: true});
+        }
+      }, true); 
+
 			if ($scope.chartX) {
 				$scope.jsonKeys.x=$scope.chartX.id;
 			}
@@ -77,6 +90,9 @@ angular.module('gridshore.c3js.chart', [])
 		if ($scope.chartSize != null) {
 			config.size = $scope.chartSize;
 		}
+		if ($scope.onclick != null) {
+			config.data.onclick = $scope.onclick;
+		}
 		if ($scope.colors != null) {
 			config.color = {"pattern":$scope.colors};
 		}
@@ -121,31 +137,21 @@ angular.module('gridshore.c3js.chart', [])
 		$scope.grid[axis].show = true;
 	};
 
-	this.addGridLine = function(axis,value,text) {
+  this.addClick = function(inside_func){
+    $scope.onclick = inside_func;
+  }
+
+	this.manageGridLine = function(value,text) {
 		if ($scope.grid == null) {
 			$scope.grid = {};
 		}
-		if (axis === "x") {
-			if ($scope.grid.x == undefined) {
-				$scope.grid.x = {};
-			}
-			if ($scope.grid.x.lines == undefined) {
-				$scope.grid.x.lines = [];
-			}
-		} else {
-			if ($scope.grid.y == undefined) {
-				$scope.grid.y = {};
-			}
-			if ($scope.grid.y.lines == undefined) {
-				$scope.grid.y.lines = [];
-			}
-
+		if ($scope.grid.x == undefined) {
+			$scope.grid.x = {};
 		}
-		if (axis === "y2") {
-			$scope.grid.y.lines.push({"value":value,"text":text,"axis":"y2"});
-		} else {
-			$scope.grid[axis].lines.push({"value":value,"text":text})
+		if ($scope.grid.x.lines == undefined) {
+			$scope.grid.x.lines = [];
 		}
+		$scope.chart.xgrids([{"value":Date.parse(value),"text":text}])
 	};
 
 	this.addLegend = function(legend) {
@@ -182,12 +188,16 @@ angular.module('gridshore.c3js.chart', [])
 		}
 	}
 
-	function loadChartData() {
-		var data = {};
-		data.keys=$scope.jsonKeys;
-		data.json=$scope.chartData;
+	function loadChartData(options) {
+		var newData = {};
+		newData.keys=$scope.jsonKeys;
+		newData.json=$scope.chartData;
+    if (options.unload){
+      newData.unload=$scope.oldKeys; //_.difference($scope.oldKeys, $scope.jsonKeys.value);
+    }
+    $scope.chart.load(newData)
 
-		$scope.chart.load(data);
+    $scope.oldKeys = $scope.jsonKeys.value;
 	}
 }])
 .directive('c3chart', function($timeout) {
@@ -196,6 +206,10 @@ angular.module('gridshore.c3js.chart', [])
 		$timeout(function() {
 			chartCtrl.showGraph()
 		});
+
+    scope.reload = function(){
+			chartCtrl.showGraph()
+    }
 	};
 
 	return {
@@ -378,16 +392,32 @@ angular.module('gridshore.c3js.chart', [])
 .directive('chartGridOptional', function() {
 	var gridLinker = function(scope,element,attrs,chartCtrl) {
 		var axisId = attrs["axisId"];
-		var value = attrs["gridValue"];
 		var text = attrs["gridText"];
 
-		chartCtrl.addGridLine(axisId,value,text);
+    if (scope.gridClick !== undefined){
+      chartCtrl.addClick(function(d, i){
+        scope.$apply(function(){
+          scope.gridClick({options: d});
+        });
+      });
+    }
+
+    scope.$watch('gridValue', function(value){
+      if (value !== undefined){
+        if (axisId === "x") {
+          chartCtrl.manageGridLine(value,text);
+        }
+      }
+    });
 	};
 
 	return {
 		"require":"^c3chart",
 		"restrict":"E",
-		"scope": {},
+		"scope": {
+      'gridValue': '=',
+      'gridClick': '&'
+    },
 		"replace":true,
 		"link": gridLinker
 	}
